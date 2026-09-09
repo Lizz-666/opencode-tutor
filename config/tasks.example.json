@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "opencode: 讲解选区",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\<YOUR-NAME>\\.config\\opencode\\learn\\explain.ps1"
+      ],
+      "presentation": {
+        "echo": false,
+        "reveal": "never",
+        "focus": false,
+        "panel": "dedicated",
+        "group": "opencode-learn",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

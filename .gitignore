@@ -1,0 +1,14 @@
+# runtime artifacts
+state.json
+config.json
+*.log
+learn-serve.log
+learn-restart-*.log
+
+# os / editor
+.vscode/
+Thumbs.db
+.DS_Store
+
+# misc
+*.tmp

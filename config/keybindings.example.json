@@ -1,0 +1,19 @@
+[
+  {
+    "key": "alt+l",
+    "command": "runCommands",
+    "when": "terminalFocus",
+    "args": {
+      "commands": [
+        { "command": "workbench.action.tasks.runTask", "args": "opencode: 讲解选区" },
+        {
+          "command": "simpleBrowser.api.open",
+          "args": [
+            "http://127.0.0.1:4399/server/aHR0cDovLzEyNy4wLjAuMTo0Mzk5/session/PLACEHOLDER",
+            { "preserveFocus": true, "viewColumn": 2 }
+          ]
+        }
+      ]
+    }
+  }
+]
