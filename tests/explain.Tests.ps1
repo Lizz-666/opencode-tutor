@@ -1,4 +1,6 @@
-﻿$libPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'explain.lib.ps1'
+﻿$parent = Split-Path -Parent $PSScriptRoot
+$libPath = Join-Path $parent 'explain.lib.ps1'
+if (-not (Test-Path -LiteralPath $libPath)) { $libPath = Join-Path $parent 'scripts\explain.lib.ps1' }
 if (Test-Path -LiteralPath $libPath) { . $libPath }
 
 Describe 'New-LearnPromptBody' {

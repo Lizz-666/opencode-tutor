@@ -1,4 +1,6 @@
-﻿$libPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'explain.lib.ps1'
+﻿$parent = Split-Path -Parent $PSScriptRoot
+$libPath = Join-Path $parent 'explain.lib.ps1'
+if (-not (Test-Path -LiteralPath $libPath)) { $libPath = Join-Path $parent 'scripts\explain.lib.ps1' }
 if (Test-Path -LiteralPath $libPath) { . $libPath }
 Import-Module (Join-Path $PSScriptRoot 'sandbox.psm1') -Force
 
@@ -31,6 +33,7 @@ Describe 'Server keep-alive' {
 Describe 'Entry script black box' {
     $script:sb = New-Sandbox
     $entry = Join-Path (Split-Path -Parent $PSScriptRoot) 'explain.ps1'
+    if (-not (Test-Path -LiteralPath $entry)) { $entry = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\explain.ps1' }
     $statePath = Join-Path $script:sb.Directory ('state-' + [Guid]::NewGuid().ToString('N') + '.json')
     $kbPath = Join-Path $script:sb.Directory ('kb-' + [Guid]::NewGuid().ToString('N') + '.json')
     @'
