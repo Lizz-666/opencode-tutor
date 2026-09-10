@@ -1,6 +1,6 @@
 # 示例配置说明
 
-本目录是给 opencode-learn 的 **VS Code / opencode 侧配置示例**。安装完整步骤见
+本目录是给 learn-while-aicoding 的 **VS Code / opencode 侧配置示例**。安装完整步骤见
 `../docs/01-install.md`。四个文件的用途与合并位置：
 
 | 文件 | 合并到 | 说明 |

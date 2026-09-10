@@ -1,8 +1,8 @@
 # 01 · 安装与配置
 
 > 面向 Windows + PowerShell 5.1。安装路径约定：把 `scripts/` 目录内容复制到
-> `C:\Users\<你>\.config\opencode\learn\`（或 clone 仓库后把 scripts 目录整体复制过去）。
-> 下文以 `%LEARN%` 代指该目录（例：`C:\Users\Lenovo\.config\opencode\learn`）。
+> `C:\Users\<你的用户名>\.config\opencode\learn\`（或 clone 仓库后把 scripts 目录整体复制过去）。
+> 下文以 `%LEARN%` 代指该目录（例：`C:\Users\<你的用户名>\.config\opencode\learn`）。
 
 ## 0. 前置条件
 

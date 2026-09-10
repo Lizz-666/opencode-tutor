@@ -27,7 +27,7 @@ function Write-Check {
     }
 }
 
-Write-Output '==== opencode-learn 环境诊断 ===='
+Write-Output '==== learn-while-aicoding 环境诊断 ===='
 
 Write-Output '--- 1. opencode 可执行与版本 ---'
 $oc = Get-Command opencode -ErrorAction SilentlyContinue
