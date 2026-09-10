@@ -96,6 +96,22 @@ Describe 'Entry script black box' {
         $found | Should Be $true
         $texts.Contains('<selected_text>') | Should Be $false
         $texts.Contains('main context message') | Should Be $false
+
+        $lineInfo = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$($marked[0].id)" -TimeoutSec 15
+        $lineInfo.parentID | Should Be $main.id
+    }
+
+    It 'learn line is hidden from root-only session listings' {
+        $state = Read-LearnState -Path $statePath
+        $learnId = @($state.lines.Values)[-1]
+
+        $rootsRaw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?roots=true" -TimeoutSec 15
+        $roots = @($rootsRaw)
+        @($roots | Where-Object { $_.id -eq $learnId }).Count | Should Be 0
+
+        $allRaw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
+        $all = @($allRaw)
+        @($all | Where-Object { $_.id -eq $learnId }).Count | Should Be 1
     }
 
     It 'second trigger appends to the same sticky line without creating a new one' {

@@ -140,10 +140,12 @@ function Invoke-LearnCreate {
     param(
         [Parameter(Mandatory = $true)][string]$BaseUrl,
         [Parameter(Mandatory = $true)][string]$Title,
-        [string]$Directory
+        [string]$Directory,
+        [string]$ParentId
     )
     $createBody = @{ title = $Title }
     if ($Directory) { $createBody['directory'] = $Directory }
+    if ($ParentId) { $createBody['parentID'] = $ParentId }
     $bytes = ConvertTo-JsonBytes -Value $createBody
     Invoke-RestMethod -Method Post -Uri "$BaseUrl/session" -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 30
 }

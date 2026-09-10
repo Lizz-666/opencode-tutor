@@ -32,8 +32,9 @@ runCommands ──► ① 任务：powershell explain.ps1
         │            ├─ Select-MainSession：directory==当前目录 && 标题不含 [LEARN] && 最近更新
         │            ├─ 学习线：state.lines[mainId]
         │            │   存在且存活 → 复用
-        │            │   否则 → 清扫同目录“未映射”孤儿线 → POST /session{title:📘[LEARN]…, directory:工作目录}
-        │            │   （directory 必传——缺失会触发 opencode subagent 子会话写库 FK 崩溃，见 05）
+        │            │   否则 → 清扫同目录“未映射”孤儿线 → POST /session{title:📘[LEARN]…, directory:工作目录, parentID:主会话}
+        │            │   （directory 必传——缺失会触发 opencode subagent 子会话写库 FK 崩溃，见 05；
+         │            │    parentID 使学习线成为子会话 → TUI/Web 会话列表天然隐藏，见设计决策）
         │            ├─ 背景：Get-LearnMessages(mainId) → Build-LearnBackground
         │            │       提取 user/assistant 文本 → "user: …\n\nassistant: …" → 截断保留尾部 ≤6万字符
         │            ├─ New-LearnPromptBody：
@@ -56,6 +57,7 @@ runCommands ──► ① 任务：powershell explain.ps1
 | 决策 | 理由 |
 |---|---|
 | **空会话而非 fork** | 要求“讲解窗口不显示主会话历史”。fork 会把历史复制成可见消息；空会话 + 请求级 `system` 注入让背景对模型可见、对界面不可见 |
+| **子会话而非根会话** | 学习线以 `parentID` 挂为主会话的子会话——TUI 列表（服务端 `roots=true` + 客户端 `parentID === undefined` 双重过滤）与 Web 首页（`parseHomeSessionIndex` 丢弃子会话）**双端天然隐藏**；删除主会话时服务端递归级联删除学习线。深链按会话 ID 访问不受影响（v1 `POST /session` 支持 parentID，v2 暂无） |
 | **背景截断（默认 6 万字符）** | 超长会话（数万 token）拖慢首字、抬高成本；只取最近部分对“解释当前语境”足够；可配置 |
 | **请求级 system 而非改 agent prompt** | 背景随每次触发动态变化，只能随请求携带；指令文本内联在 system 里，无论 opencode 对 `system` 字段是替换还是追加 agent prompt 都自洽 |
 | **粘性学习线（state.lines 映射）** | 任何项目/实例即开即用：按主会话 id 记忆学习会话，天然多线并存、互不干扰；重建时只清“未映射孤儿”，绝不误删别的主会话的活线 |

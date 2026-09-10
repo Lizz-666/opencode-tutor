@@ -63,7 +63,7 @@ opencode 配置在**服务启动时**加载。改 `opencode.json` 后，下一�
 ## 版本兼容矩阵
 
 见 README「兼容性与版本」。要点：
-- opencode **≥1.18.29**；升级后跑 `tests\run.ps1`（37 例，即兼容探针）
+- opencode **≥1.18.29**；升级后跑 `tests\run.ps1`（44 例，即兼容探针）
 - VS Code 需支持 runCommands 与 Simple Browser（近两年版本均可）
 - **Windows-only**；macOS/Linux 移植点见 README
 

@@ -29,6 +29,7 @@
 | 新会话没有上下文，解释常答非所问 | 主会话最近对话经 `system` 字段**隐式注入**（界面不可见、封顶 6 万字符） |
 | 想自己换讲解模型 | **双层模型配置**，改一处、下次触发自动生效 |
 | 多项目、多实例环境不好维护 | 学习线按「主会话」自动记忆，任何项目即开即用，配置全局一份 |
+| 学习线堆满会话列表 | 学习线是主会话的**子会话**，TUI/Web 会话列表都不显示；删除主会话时自动级联清理 |
 
 ## 快速开始
 
@@ -125,7 +126,7 @@ opencode 聊天界面里看到不懂的内容
 ## 开发与测试
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1   # 43 例，需 opencode 在 PATH
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1   # 44 例，需 opencode 在 PATH
 ```
 
 测试用真实 `opencode serve`（随机端口 + 临时目录），测完自清理、零残留。

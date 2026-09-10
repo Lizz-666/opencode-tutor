@@ -80,7 +80,14 @@ try {
     $learnId = $null
     if ($state.lines -and $state.lines.ContainsKey($main.id)) { $learnId = [string]$state.lines[$main.id] }
     $learnAlive = $false
-    if ($learnId) { $learnAlive = @($sessions | Where-Object { $_.id -eq $learnId }).Count -gt 0 }
+    if ($learnId) {
+        try {
+            $null = Invoke-RestMethod -Uri ($ServerUrl + '/session/' + $learnId) -TimeoutSec 10
+            $learnAlive = $true
+        } catch {
+            $learnAlive = $false
+        }
+    }
 
     if (-not $learnId -or -not $learnAlive) {
         $liveLineIds = @()
@@ -92,7 +99,7 @@ try {
         })) {
             $null = Remove-LearnSession -BaseUrl $ServerUrl -SessionId $s.id
         }
-        $learn = Invoke-LearnCreate -BaseUrl $ServerUrl -Title (New-LearnTitle -BaseTitle $main.title) -Directory $WorkDir
+        $learn = Invoke-LearnCreate -BaseUrl $ServerUrl -Title (New-LearnTitle -BaseTitle $main.title) -Directory $WorkDir -ParentId $main.id
         $learnId = $learn.id
         $lines = @{}
         if ($state.lines) { foreach ($k in @($state.lines.Keys)) { $lines[$k] = [string]$state.lines[$k] } }
