@@ -1,5 +1,35 @@
 # 01 · 安装与配置
 
+## 一键安装（推荐）
+
+```powershell
+git clone https://github.com/Lizz-666/learn-while-aicoding.git
+cd learn-while-aicoding
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+安装器会自动完成本文第 1–7 节的全部步骤（复制脚本、环境变量、agent、VS Code 三件套、
+可选计划任务、体检），并遵守以下安全设计：
+
+- **幂等**：重复运行安全，已是最新的项自动跳过
+- **备份**：每次修改配置文件前生成 `.bak-时间戳` 备份
+- **不写坏**：任何配置文件解析失败（如含注释的 JSONC）会跳过该项并给出手动指引
+- **可预览**：`-DryRun` 只显示计划不改动
+- **可卸载**：`-Uninstall` 精确移除我们加入的条目（保留你的其他配置），残留手动项会明确列出
+
+| 参数 | 作用 |
+|---|---|
+| `-DryRun` | 只显示将要修改什么，不落盘 |
+| `-WithPrewarm` | 注册登录自启计划任务（默认不注册） |
+| `-Uninstall [-Force]` | 卸载 |
+| `-SandboxRoot <路径>` / `-SkipSystemLevel` | 测试/沙箱用（重定向路径、跳过系统级操作） |
+
+装完做两步：**完全重启 VS Code** + `Ctrl+Shift+P` → **Toggle Do Not Disturb Mode**。
+
+以下为手动安装（分步/自定义）的完整说明。
+
+---
+
 > 面向 Windows + PowerShell 5.1。安装路径约定：把 `scripts/` 目录内容复制到
 > `C:\Users\<你的用户名>\.config\opencode\learn\`（或 clone 仓库后把 scripts 目录整体复制过去）。
 > 下文以 `%LEARN%` 代指该目录（例：`C:\Users\<你的用户名>\.config\opencode\learn`）。

@@ -121,10 +121,11 @@ $ghostOk = $true
 if (Test-Path -LiteralPath $statePath) {
     $state = Read-LearnState -Path $statePath
     if ($ready -and $state.lines) {
-        $all = @(Get-LearnSessions -BaseUrl $ServerUrl)
         foreach ($k in @($state.lines.Keys)) {
             $learnId = [string]$state.lines[$k]
-            if (@($all | Where-Object { $_.id -eq $learnId }).Count -eq 0) {
+            $exists = $true
+            try { $null = Invoke-RestMethod -Uri ($ServerUrl + '/session/' + $learnId) -TimeoutSec 10 } catch { $exists = $false }
+            if (-not $exists) {
                 $ghostOk = $false
                 Write-Output ("        幽灵: 主会话 $k 映射的学习会话 $learnId 已不存在（可删除该 state.json 行或整文件，下次触发自动重建）")
             }

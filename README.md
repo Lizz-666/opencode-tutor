@@ -32,21 +32,31 @@
 
 ## 快速开始
 
-```powershell
-# 1. 复制脚本到 opencode 用户目录
-Copy-Item scripts\* -Destination "$env:USERPROFILE\.config\opencode\learn\" -Recurse
-
-# 2. 开启 opencode 原生"拖选即复制"（Windows 默认关闭）
-setx OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT 0
-```
-
-3. 把 `agent.explain` 并入 `~/.config/opencode/opencode.json`（示例见 [config/opencode.agent.example.json](config/opencode.agent.example.json)）
-4. 配置 VS Code 三件套：`keybindings.json` / `tasks.json` / `settings.json`（示例见 [config/](config/)，完整步骤见 [01-install.md](docs/01-install.md)）
-5. **完全重启 VS Code** → 跑一次体检：
+### 一键安装（推荐）
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\opencode\learn\doctor.ps1"
+git clone https://github.com/Lizz-666/learn-while-aicoding.git
+cd learn-while-aicoding
+powershell -ExecutionPolicy Bypass -File install.ps1
 ```
+
+安装器自动完成：复制脚本 → 开启拖选即复制（环境变量）→ 合并 explain agent 与 VS Code 三件套
+（**保留你原有配置，改动前自动备份**）→ 运行体检。幂等设计，重复运行安全。
+
+| 可选参数 | 作用 |
+|---|---|
+| `-DryRun` | 只显示将要修改什么，不落盘 |
+| `-WithPrewarm` | 额外注册登录自启（开机预热后台服务） |
+| `-Uninstall` | 一键卸载（移除我们加入的条目，保留你的其他配置） |
+
+装完两步收尾：
+
+1. **完全关闭并重开 VS Code**（环境变量与新配置生效）
+2. `Ctrl+Shift+P` → **Toggle Do Not Disturb Mode**（防止通知遮挡讲解窗口）
+
+### 手动安装（分步 / 自定义）
+
+见 [docs/01-install.md](docs/01-install.md)（含模型双层配置、各项配置的作用与原理）。
 
 ## 日常使用
 
@@ -115,10 +125,11 @@ opencode 聊天界面里看到不懂的内容
 ## 开发与测试
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1   # 37 例，需 opencode 在 PATH
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1   # 43 例，需 opencode 在 PATH
 ```
 
 测试用真实 `opencode serve`（随机端口 + 临时目录），测完自清理、零残留。
+其中 `install.Tests.ps1` 用**沙箱目录**验证安装/卸载的幂等与往返一致性（不触碰你的真实配置）。
 仓库测试可在**本仓库目录直接运行**（兼容扁平与 scripts/ 两种布局）。
 
 ## 免责声明
