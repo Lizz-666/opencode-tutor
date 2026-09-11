@@ -1,4 +1,4 @@
-# learn-while-aicoding
+# opencode-tutor
 
 **在 opencode 里"哪里不会点哪里"：拖选一段看不懂的 AI 输出，一键让独立讲解会话结合你的对话上下文讲清楚——不污染主会话、不打断当前工作、绝不碰你的文件。**
 
@@ -22,7 +22,7 @@
 
 ## 为什么用它
 
-| 痛点 | learn-while-aicoding 的做法 |
+| 痛点 | opencode-tutor 的做法 |
 |---|---|
 | AI 输出里有看不懂的术语/报错/片段，复制粘贴去提问很割裂 | 鼠标**普通拖选** → 按 **Alt+L**，全程不离开键盘工作流 |
 | 提问会污染主会话上下文 / 打断正在进行的生成 | 讲解在**独立会话**并行进行，主会话零改动（AI 输出中也能触发） |
@@ -36,8 +36,8 @@
 ### 一键安装（推荐）
 
 ```powershell
-git clone https://github.com/Lizz-666/learn-while-aicoding.git
-cd learn-while-aicoding
+git clone https://github.com/Lizz-666/opencode-tutor.git
+cd opencode-tutor
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 

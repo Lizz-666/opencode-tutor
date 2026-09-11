@@ -17,7 +17,7 @@
         "reveal": "never",
         "focus": false,
         "panel": "dedicated",
-        "group": "learn-while-aicoding",
+        "group": "opencode-tutor",
         "clear": true
       },
       "problemMatcher": []

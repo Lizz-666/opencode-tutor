@@ -99,7 +99,7 @@ function New-OurTaskEntry {
         type = 'shell'
         command = 'powershell'
         args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $InstallDir 'explain.ps1'))
-        presentation = @{ echo = $false; reveal = 'never'; focus = $false; panel = 'dedicated'; group = 'learn-while-aicoding'; clear = $true }
+        presentation = @{ echo = $false; reveal = 'never'; focus = $false; panel = 'dedicated'; group = 'opencode-tutor'; clear = $true }
         problemMatcher = @()
     }
 }
@@ -123,7 +123,7 @@ function Get-EntryUrl {
 }
 
 function Install-All {
-    Say '==== learn-while-aicoding 一键安装 ===='
+    Say '==== opencode-tutor 一键安装 ===='
     if ($DryRun) { Say '(DryRun：只显示计划，不修改任何文件)' }
     if ($SandboxRoot) { Say ('沙箱模式: ' + $SandboxRoot) }
 
@@ -318,7 +318,7 @@ function Install-All {
 }
 
 function Uninstall-All {
-    Say '==== learn-while-aicoding 卸载 ===='
+    Say '==== opencode-tutor 卸载 ===='
     if ($DryRun) { Say '(DryRun：只显示计划，不修改任何文件)' }
 
     if (-not $Force -and -not $DryRun) {

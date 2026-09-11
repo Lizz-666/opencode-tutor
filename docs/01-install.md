@@ -3,8 +3,8 @@
 ## 一键安装（推荐）
 
 ```powershell
-git clone https://github.com/Lizz-666/learn-while-aicoding.git
-cd learn-while-aicoding
+git clone https://github.com/Lizz-666/opencode-tutor.git
+cd opencode-tutor
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
