@@ -4,6 +4,8 @@ config.json
 *.log
 learn-serve.log
 learn-restart-*.log
+scripts/lines/
+open-request.*.json
 
 # os / editor
 .vscode/

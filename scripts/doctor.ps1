@@ -8,6 +8,7 @@
 
 $ErrorActionPreference = 'Continue'
 $scriptDir = $PSScriptRoot
+. (Join-Path $PSScriptRoot 'jsonc.ps1')
 if (Test-Path (Join-Path $scriptDir 'explain.lib.ps1')) {
     . (Join-Path $scriptDir 'explain.lib.ps1')
 } else {
@@ -15,7 +16,7 @@ if (Test-Path (Join-Path $scriptDir 'explain.lib.ps1')) {
     exit 1
 }
 
-$global:failedCount = 0
+$script:failedCount = 0
 
 function Write-Check {
     param([string]$Name, [bool]$Ok, [string]$Hint)
@@ -60,52 +61,58 @@ Write-Check "后台服务 $ServerUrl 可访问" $ready ('服务未启动：按�
 Write-Output '--- 4. keybindings.json ---'
 if (-not $KeybindingsPath) { $KeybindingsPath = Join-Path $env:APPDATA 'Code\User\keybindings.json' }
 $kbOk = $false
-$kbUrl = ''
 if (Test-Path -LiteralPath $KeybindingsPath) {
     try {
         $kbRaw = Get-Content -LiteralPath $KeybindingsPath -Raw -Encoding UTF8
-        $kb = $kbRaw | ConvertFrom-Json
-        $entry = @($kb) | Where-Object { $_.key -eq 'alt+l' -and $_.command -eq 'runCommands' }
-        if ($entry) {
-            $sbCmd = @($entry.args.commands) | Where-Object { $_ -isnot [string] -and $_.command -eq 'simpleBrowser.api.open' }
-            if ($sbCmd) { $kbUrl = [string]$sbCmd[0].args[0] }
-            $kbOk = $kbUrl -ne ''
-        }
+        $kb = ConvertFrom-TutorJsonc -Text $kbRaw
+        $entry = @($kb) | Where-Object { $_.key -eq 'alt+l' -and $_.command -eq 'opencodeTutor.open' }
+        if ($entry) { $kbOk = $true }
     } catch {}
 }
-Write-Check 'keybindings 含 alt+l runCommands+simpleBrowser' $kbOk 'keybindings.json 需含示例中的 alt+l 绑定（含 simpleBrowser.api.open 条目）'
-Write-Check '键位 URL 非占位符' ($kbOk -and -not $kbUrl.Contains('PLACEHOLDER')) '学习线 URL 会在首次 Alt+L 触发后自动回填；若持续为 PLACEHOLDER，请检查 explain.ps1 是否成功执行'
+Write-Check 'keybindings 含 alt+l -> opencodeTutor.open' $kbOk 'keybindings.json 需含 { "key": "alt+l", "command": "opencodeTutor.open", "when": "terminalFocus" }（install.ps1 会自动写入并迁移旧形态）'
 
-Write-Output '--- 5. tasks.json ---'
+Write-Output '--- 5. 讲解面板扩展 ---'
+$extRoot = Join-Path $env:USERPROFILE '.vscode\extensions'
+$extOk = $false
+$extPath = ''
+if (Test-Path -LiteralPath $extRoot) {
+    $extHit = @(Get-ChildItem -LiteralPath $extRoot -Directory -Filter 'lizz666.opencode-tutor-panel-*' -ErrorAction SilentlyContinue | Sort-Object { try { [version]($_.Name -replace '^.*opencode-tutor-panel-', '') } catch { [version]'0.0.0' } } -Descending)
+    if ($extHit.Count -gt 0) { $extOk = $true; $extPath = $extHit[0].FullName }
+}
+if ($extPath) { Write-Output ('        扩展目录: ' + $extPath) }
+Write-Check '讲解面板扩展已安装' $extOk '运行 install.ps1 安装扩展；安装后需 Reload Window 一次生效'
+
+$legacyTaskOk = $true
 if (-not $TasksPath) { $TasksPath = Join-Path $env:APPDATA 'Code\User\tasks.json' }
-$taskOk = $false
 if (Test-Path -LiteralPath $TasksPath) {
     try {
-        $t = (Get-Content -LiteralPath $TasksPath -Raw -Encoding UTF8) | ConvertFrom-Json
-        $task = @($t.tasks) | Where-Object { $_.label -eq 'opencode: 讲解选区' }
-        if ($task) { $taskOk = $true }
+        $t = ConvertFrom-TutorJsonc -Text (Get-Content -LiteralPath $TasksPath -Raw -Encoding UTF8)
+        if (@($t.tasks | Where-Object { $_.label -eq 'opencode: 讲解选区' }).Count -gt 0) { $legacyTaskOk = $false }
     } catch {}
 }
-Write-Check 'tasks 含任务 opencode: 讲解选区' $taskOk 'tasks.json 需含示例任务（label 必须与 keybindings 的 runTask 参数一致）'
+Write-Check '无遗留旧版任务条目' $legacyTaskOk '检测到旧版任务条目（已弃用）：重跑 install.ps1 会自动清理'
 
 Write-Output '--- 6. settings.json copyOnSelection ---'
 if (-not $SettingsPath) { $SettingsPath = Join-Path $env:APPDATA 'Code\User\settings.json' }
 $copyOk = $false
 if (Test-Path -LiteralPath $SettingsPath) {
     try {
-        $s = (Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8) | ConvertFrom-Json
+        $s = ConvertFrom-TutorJsonc -Text (Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8)
         $copyOk = $s.'terminal.integrated.copyOnSelection' -eq $true
     } catch {}
 }
 Write-Check 'terminal.integrated.copyOnSelection=true' $copyOk '在 settings.json 加入该键（opencode 自身拖选即复制依赖此设置可选；Alt+L 链不依赖它）'
 
 Write-Output '--- 7. explain agent ---'
-if (-not $OpencodeJsonPath) { $OpencodeJsonPath = Join-Path $env:USERPROFILE '.config\opencode\opencode.json' }
+if (-not $OpencodeJsonPath) {
+    $OpencodeJsonPath = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
+    if (Test-Path -LiteralPath ($OpencodeJsonPath + 'c')) { $OpencodeJsonPath += 'c' }
+}
 $agentOk = $false
 $agentModel = ''
 if (Test-Path -LiteralPath $OpencodeJsonPath) {
     try {
-        $o = (Get-Content -LiteralPath $OpencodeJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+        $o = ConvertFrom-TutorJsonc -Text (Get-Content -LiteralPath $OpencodeJsonPath -Raw -Encoding UTF8)
         if ($o.agent.explain) {
             $agentOk = $true
             $agentModel = [string]$o.agent.explain.model
@@ -119,7 +126,8 @@ Write-Output '--- 8. state 幽灵检测 ---'
 $statePath = Join-Path $scriptDir 'state.json'
 $ghostOk = $true
 if (Test-Path -LiteralPath $statePath) {
-    $state = Read-LearnState -Path $statePath
+    $state = $null
+    try { $state = Read-LearnState -Path $statePath } catch { $ghostOk = $false; Write-Output $_.Exception.Message }
     if ($ready -and $state.lines) {
         foreach ($k in @($state.lines.Keys)) {
             $learnId = [string]$state.lines[$k]
@@ -137,8 +145,8 @@ if (Test-Path -LiteralPath $statePath) {
 Write-Check 'state 映射无幽灵会话' $ghostOk ''
 
 Write-Output '==== 诊断结束 ===='
-if ($global:failedCount -gt 0) {
-    Write-Output ("结论: $($global:failedCount) 项未通过，按上方指引修复；修复后完全重启 VS Code 再试。")
+if ($script:failedCount -gt 0) {
+    Write-Output ("结论: $($script:failedCount) 项未通过，按上方指引修复；修复后完全重启 VS Code 再试。")
     exit 1
 } else {
     Write-Output '结论: 全部通过，可以正常使用（拖选 -> Alt+L）。'

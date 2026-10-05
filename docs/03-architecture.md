@@ -1,92 +1,57 @@
-# 03 · 架构
+# 03 · 架构（1.2）
 
-## 组件总览
+## 组件与数据流
 
-| 组件 | 位置 | 职责 |
-|---|---|---|
-| `explain.ps1` | 入口（VS Code 任务调用） | 编排：剪贴板 → 服务保障 → 选主会话 → 学习线 → 背景注入 → 发送 |
-| `explain.lib.ps1` | 函数库 | 全部可单测逻辑：HTTP 封装 / 状态 / 背景构建 / 配置 / 键位更新 / 深链 |
-| 后台服务 | `opencode serve`（默认 4399） | 会话 API + Web UI 托管（opencode 自带） |
-| 学习会话 | 服务端会话 | 全新空会话（**不 fork 主会话**），只承载“原文→讲解”问答 |
-| Simple Browser | VS Code 内建 | 图形化展示 Web UI 深链 |
-| `prewarm.ps1` | 登录计划任务 | 开机预热后台服务 |
-| `doctor.ps1` | 诊断 | 8 项环境体检 |
-| `state.json` | 运行时 | 主会话 → 学习线 id 映射 |
-| `config.json` | 运行时 | 端口 / 背景长度 / 可选模型覆盖 |
+扩展捕获一次剪贴板 → 根据活动终端 cwd 确定项目（多根且不明确时选择）→ 隐藏运行 explain.ps1 → 后台列出根会话 → 单个候选自动绑定、多个候选选择 → 加锁取得或创建学习线 → 拼接背景、异步发送 → 原子写入本次 invocation 标记 → 本地 Webview 打开学习线。
 
-## 一次触发的数据流
-
-```
-用户普通拖选（opencode copy-on-select 自动复制到系统剪贴板）
-        │
-        ▼ Alt+L (when: terminalFocus)
-runCommands ──► ① 任务：powershell explain.ps1
-        │            │
-        │            ├─ Get-Clipboard -Raw
-        │            │   空？→ beep×2 + exit 1（后台静默）
-        │            ├─ Test-LearnServerReady(base://127.0.0.1:<cfg.port>)
-        │            │   不通 → Start-LearnServer 自愈拉起（cmd /c 隐藏）
-        │            ├─ Test-LearnConfigStale：opencode.json mtime > 服务进程启动时间？
-        │            │   是 → kill 端口进程 → 同端口重启（日志按端口分文件）
-        │            ├─ Get-LearnSessions（UTF-8 手动解码，全局列表）
-        │            ├─ Select-MainSession：directory==当前目录 && 标题不含 [LEARN] && 最近更新
-        │            ├─ 学习线：state.lines[mainId]
-        │            │   存在且存活 → 复用
-        │            │   否则 → 清扫同目录“未映射”孤儿线 → POST /session{title:📘[LEARN]…, directory:工作目录, parentID:主会话}
-        │            │   （directory 必传——缺失会触发 opencode subagent 子会话写库 FK 崩溃，见 05；
-         │            │    parentID 使学习线成为子会话 → TUI/Web 会话列表天然隐藏，见设计决策）
-        │            ├─ 背景：Get-LearnMessages(mainId) → Build-LearnBackground
-        │            │       提取 user/assistant 文本 → "user: …\n\nassistant: …" → 截断保留尾部 ≤6万字符
-        │            ├─ New-LearnPromptBody：
-        │            │   system = 讲解指令 + [background]…（界面不可见）
-        │            │   parts  = [ {text: 你选中的原文} ]   ← 无任何包装/标签
-        │            │   model  = 可选 config.json 覆盖（请求级）
-        │            ├─ Send-LearnPrompt：prompt_async（失败降级同步 message）
-        │            ├─ Update-LearnKeybindings：确保键位 URL = /server/<serverKey>/session/<learnId>
-        │            │   （幂等：URL 已正确则跳过写盘）
-        │            └─ 打印网页地址
-        └─── ② simpleBrowser.api.open(键位内 URL)
-                 │
-                 ▼ Web UI 加载（SPA）
-        /server/<base64url(serverUrl)>/session/<learnId>   ← 应用原生深链路由
-        WebSocket 实时流式：新问答自动滚出，无需刷新
-```
-
-## 关键设计决策
-
-| 决策 | 理由 |
+| 组件 | 职责 |
 |---|---|
-| **空会话而非 fork** | 要求“讲解窗口不显示主会话历史”。fork 会把历史复制成可见消息；空会话 + 请求级 `system` 注入让背景对模型可见、对界面不可见 |
-| **子会话而非根会话** | 学习线以 `parentID` 挂为主会话的子会话——TUI 列表（服务端 `roots=true` + 客户端 `parentID === undefined` 双重过滤）与 Web 首页（`parseHomeSessionIndex` 丢弃子会话）**双端天然隐藏**；删除主会话时服务端递归级联删除学习线。深链按会话 ID 访问不受影响（v1 `POST /session` 支持 parentID，v2 暂无） |
-| **背景截断（默认 6 万字符）** | 超长会话（数万 token）拖慢首字、抬高成本；只取最近部分对“解释当前语境”足够；可配置 |
-| **请求级 system 而非改 agent prompt** | 背景随每次触发动态变化，只能随请求携带；指令文本内联在 system 里，无论 opencode 对 `system` 字段是替换还是追加 agent prompt 都自洽 |
-| **粘性学习线（state.lines 映射）** | 任何项目/实例即开即用：按主会话 id 记忆学习会话，天然多线并存、互不干扰；重建时只清“未映射孤儿”，绝不误删别的主会话的活线 |
-| **键位 URL 幂等回写** | 学习线换新（丢失/切主会话）后由脚本自己改写 keybindings.json 的 URL——零用户操作；URL 相同则跳过写盘避免文件抖动 |
-| **配置过期自愈** | opencode 配置是服务启动时加载的；比较 mtime 与进程启动时间，过期即自动重启——用户改模型/改任何配置后下次触发自动生效 |
-| **深链格式 /server/<serverKey>** | Web UI 自身的会话路由（serverKey = base64url(服务地址)）；目录 slug 形态会被应用自动重定向成它，直接用原生形态省一次跳转 |
-| **不依赖 VS Code 链内剪贴板命令** | VS Code 存在“runCommands 里剪贴板命令静默失败”bug 族；且 TUI 选区是 opencode 内部选区、VS Code 命令本就看不见——复制交给 opencode 原生 copy-on-select（拖选即复制） |
+| extension/ | 快捷键、来源绑定、剪贴板快照、进程结果、Webview。Node spawn 使用 windowsHide；脚本 stdin 传文本，不把原文放进命令行 |
+| explain.ps1 | 编排服务检查、主会话协商、学习线与请求；显式 -MainSessionId 可供脚本调用 |
+| explain.lib.ps1 | HTTP、跨进程互斥、状态原子替换、建线/续建事务、进度和结果标记 |
+| context.ps1 | 分页读取、选区定位、相关性排序、按完整消息执行字符预算 |
+| extension/api.js | 本机状态读取及经过会话身份复核的生成中止请求 |
+| prewarm-launcher.exe | 安装时由 HiddenLauncher.cs 编译的 GUI 子系统入口，启动时没有控制台 |
+| prewarm.ps1 | 与按需入口共用服务启动逻辑；端口锁避免同时启动多个服务 |
+| jsonc.ps1 | JSONC 解析及局部修改，保留未修改字段/注释；写入前校验后原子替换 |
+| install-state.json | 安装前配置与工具预期值，用于保护用户设置和卸载恢复 |
 
-## 状态与配置
+## 主会话绑定
 
-```jsonc
-// state.json（运行时生成）
-{ "lines": { "<主会话id>": "<学习会话id>" }, "updatedAt": 1788… }
+只选择当前目录的根会话，排除子会话、归档会话和 [LEARN] 会话。多个候选不按更新时间猜测。服务返回 sessions 标记后，扩展显示选择框；选择后传 MainSessionId 重试，复用最初捕获的剪贴板。
 
-// config.json（用户可改）
-{ "port": 4399, "backgroundMaxChars": 60000, "model": "deepseek/deepseek-v4-flash" }
-```
+绑定按活动终端保存在扩展内存中，不同终端互不影响；没有活动终端时按当前窗口/目录绑定。重载窗口后重新确认。相同终端切换主会话时，使用「重新选择主会话并讲解」。面板显示来源目录、标题和 ID。
 
-## 测试体系
+## 状态与历史保护
 
-- 框架：PowerShell 5.1 自带 **Pester 3.4**（零额外安装）
-- 运行：`powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1`
-- 前置：`opencode` 在 PATH（沙箱会拉起真实 `opencode serve`，随机端口、临时目录，测完自清理——会话与进程均零残留）
-- 分层：
-  - **单元**（explain.Tests.ps1）：状态映射、主会话挑选、背景构建/截断、请求体构造（含模型覆盖切分）、配置读取、过期判定、键位 URL 改写、深链编码
-  - **集成/黑盒**（http.Tests.ps1）：真实服务上的建线（directory+标记标题）、消息往返、noReply 落库、删除幂等、入口脚本端到端（建线/追加/切主换线/配置过期自动重启）、服务保活
-- **兼容探针**：升级 opencode 后跑一遍，I/B 用例覆盖全部依赖 API 面
-- 沙箱自清理的实现注意：Pester 3.4 的 `AfterAll` 看不到 Describe 作用域变量，必须用 `$script:` 前缀（否则僵尸进程与孤儿会话）
+- 以状态文件的规范绝对路径生成命名互斥锁，覆盖读取、查线、建线、合并映射、写入全过程；不在生成回复期间持锁。
+- 更新写入同目录临时文件，以 File.Replace 原子替换，旧内容保存至 state.json.bak。不同主会话映射合并，避免覆盖别的窗口。
+- 状态缺失可以创建；损坏、空内容、错误 schema 会停止请求，保留原文件，不自动重置。
+- 学习线请求只有明确 404 才视为不存在；网络或鉴权失败不会触发重建。
+- 旧子会话需要迁移时新建独立根线，保留旧线全部历史。无映射会话也不自动删除，延后由用户确认整理。
 
-## PowerShell 5.1 铁律（开发本项目时踩过的坑，写代码前必读）
+## 后台与面板
 
-见 `05-troubleshooting.md` 的「PS 5.1 陷阱」一节——函数返回数组会被管道拆散、`@(cmdlet)` 不展开、`-like` 的 `[X]` 是字符类、含中文文件必须 UTF-8 BOM 等，均有修复范式与对应回归测试。
+后台服务固定监听 127.0.0.1，按端口互斥启动。PowerShell 子进程使用 UseShellExecute=false / CreateNoWindow=true；计划任务走 GUI 启动器。配置过期只提示，不根据端口直接 taskkill；全局配置在空闲时手动重启后生效，请求级 model 无需重启。
+
+Webview 开启必要脚本能力，关闭 command URI、本地资源；frame-src 仅包含配置的 loopback origin，结果 URL 必须匹配服务及 session 路径。iframe 运行 OpenCode 自带 Web UI。
+
+请求结果文件带唯一 invocation，以原子替换发布。脚本退出但没有结果时立即报错，避免等满 120 秒。异步发送只在 404/405 时降级同步接口，网络超时不盲目重复提交。
+
+## API 与上下文
+
+学习线仍是独立目录的空根会话，不 fork、不向主会话写消息。GET/POST session 的 directory 使用 query 参数。消息请求带 limit；下一页使用响应 X-Next-Cursor 的原始值作为 before，而非消息 ID。无游标时停止，重复消息去重，默认扫描最多 200 条。接口依据 [OpenCode Server API](https://opencode.ai/docs/server/)，游标行为另有真实服务测试。
+
+相关模式先定位选区，再选相邻消息、此前提问和少量近期消息；分页边界处继续补查此前提问，至多回看四条有效文本消息，并始终受总扫描上限限制。按优先级纳入预算后恢复时间顺序。文本部分按消息合并，整条超限时跳过；新安装默认背景 12000 字符，原选区不截断。预算与历史阈值是字符/消息计量，不声称精确 token 估算。
+
+当前学习线达到消息数或文本字符阈值时，在状态锁内复核空闲状态并准备独立会话。入口持有同一状态锁，延迟映射写入，直到发送前最后一次取消检查通过才提交，随后释放锁并发出请求；进入提交边界后不再取消或回滚可能已发送的请求。创建途中取消会保留旧映射；已创建的空会话不会被自动删除。旧会话保留，结果提供 previousUrl。忙碌或状态获取失败时不会切线。此检查发生于 Alt+L 入口，不拦截内嵌 Web UI 的直接追问。
+
+progress-request 发布阶段，cancel-request 协作取消准备，open-request 发布最终结果，三者都以 invocation 隔离。取消与提交存在竞态，最终结果必须区分已发送与未发送；发送错误保留已知学习会话地址。停止生成前复核 ID、学习目录、标题和根会话身份，仅请求该学习会话的 abort，不停止主会话或服务进程。状态轮询只更新宿主状态文字，不重载 iframe。
+
+## 测试
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1` 运行 Node 扩展行为测试和 Pester 单元、并发、安装、真实服务集成测试。HTTP 写入使用 noReply，不生成模型回答。运行前应使用隔离的 XDG 配置/数据目录并配置测试 explain agent，避免依赖真实用户设置。
+
+`tests/smoke/index.cjs` 可由 VS Code 的 --extensionTestsPath 启动。通过 TUTOR_SMOKE_ROOT 指定独立目录，使用独立 --user-data-dir / --extensions-dir；真实扩展宿主连接本地模拟服务，检查 iframe JavaScript、流式事件、追问表单，不调用模型。
+
+PS 5.1 注意事项仍见 [排障文档](05-troubleshooting.md)：UTF-8 BOM、数组管道语义、通配符字符类和 Pester 作用域。

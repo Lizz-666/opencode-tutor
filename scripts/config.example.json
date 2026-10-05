@@ -1,1 +1,10 @@
-﻿{"port": 4399, "backgroundMaxChars": 60000, "model": "deepseek/deepseek-v4-flash"}
+{
+  "port": 4399,
+  "backgroundMaxChars": 12000,
+  "contextPageSize": 40,
+  "contextMaxMessages": 200,
+  "learningMaxMessages": 40,
+  "learningMaxChars": 60000,
+  "selectionMaxChars": 24000,
+  "model": "deepseek/deepseek-v4-flash"
+}

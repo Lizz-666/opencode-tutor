@@ -36,6 +36,8 @@ Describe 'Entry script black box' {
     if (-not (Test-Path -LiteralPath $entry)) { $entry = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\explain.ps1' }
     $statePath = Join-Path $script:sb.Directory ('state-' + [Guid]::NewGuid().ToString('N') + '.json')
     $kbPath = Join-Path $script:sb.Directory ('kb-' + [Guid]::NewGuid().ToString('N') + '.json')
+    $script:lineDir = Join-Path $script:sb.Directory 'lines'
+    $script:markerDir = Join-Path $script:sb.Directory 'markers'
     @'
 [
   {
@@ -58,25 +60,38 @@ Describe 'Entry script black box' {
     It 'exits with error and no side effects when clipboard is empty' {
         $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
         $before = @($raw).Count
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText ' ' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -NoReply 2>&1
+        $env:OPENCODE_TUTOR_INVOCATION = 'e1'
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText ' ' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -OpenRequestDir $script:markerDir -NoReply 2>&1
         if ($LASTEXITCODE -ne 1) { Write-Output $out }
         $LASTEXITCODE | Should Be 1
+        Remove-Item Env:\OPENCODE_TUTOR_INVOCATION -ErrorAction SilentlyContinue
         $raw2 = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
         $after = @($raw2).Count
         $after | Should Be $before
         (Test-Path -LiteralPath $statePath) | Should Be $false
+
+        $markerPath = Join-Path $script:markerDir 'open-request.e1.json'
+        (Test-Path -LiteralPath $markerPath) | Should Be $true
+        $m = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $m.invocation | Should Be 'e1'
+        $m.url | Should BeNullOrEmpty
+        $m.error | Should Not BeNullOrEmpty
     }
 
     It 'first trigger creates one sticky learn line with the selection' {
         $main = New-SandboxSession -BaseUrl $script:sb.BaseUrl -Title 'main work'
         Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $main.id -Text 'main context message' | Out-Null
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'what is mount' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -NoReply 2>&1
+        $env:OPENCODE_TUTOR_INVOCATION = 's1'
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'what is mount' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -OpenRequestDir $script:markerDir -NoReply 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Output $out }
         $LASTEXITCODE | Should Be 0
+        Remove-Item Env:\OPENCODE_TUTOR_INVOCATION -ErrorAction SilentlyContinue
 
-        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
+        (Test-Path -LiteralPath $script:lineDir) | Should Be $true
+        $escLineDir = [Uri]::EscapeDataString($script:lineDir)
+        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?directory=$escLineDir" -TimeoutSec 15
         $sessions = @($raw)
-        $marked = @($sessions | Where-Object { $_.title.Contains((Get-LearnMarker)) -and $_.directory -eq $script:sb.Directory })
+        $marked = @($sessions | Where-Object { $_.title.Contains((Get-LearnMarker)) })
         $marked.Count | Should Be 1
 
         $state = Read-LearnState -Path $statePath
@@ -98,32 +113,55 @@ Describe 'Entry script black box' {
         $texts.Contains('main context message') | Should Be $false
 
         $lineInfo = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$($marked[0].id)" -TimeoutSec 15
-        $lineInfo.parentID | Should Be $main.id
+        $lineInfo.parentID | Should BeNullOrEmpty
+        $lineInfo.directory.TrimEnd('\') | Should Be $script:lineDir.TrimEnd('\')
+
+        $markerPath = Join-Path $script:markerDir 'open-request.s1.json'
+        (Test-Path -LiteralPath $markerPath) | Should Be $true
+        $m = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $m.invocation | Should Be 's1'
+        $m.error | Should BeNullOrEmpty
+        $m.url.Contains($marked[0].id) | Should Be $true
     }
 
-    It 'learn line is hidden from root-only session listings' {
+    It 'honors a cancellation marker before creating a line or sending a prompt' {
+        $env:OPENCODE_TUTOR_INVOCATION = 'cancel-before-send'
+        $cancel = Join-Path $script:markerDir 'cancel-request.cancel-before-send.json'
+        [IO.File]::WriteAllText($cancel,'{}')
+        $isolatedState = Join-Path $script:sb.Directory 'cancelled-state.json'
+        try {
+            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'cancel this selection' -ServerUrl $script:sb.BaseUrl -StateFile $isolatedState -WorkDir $script:sb.Directory -OpenRequestDir $script:markerDir -NoReply 2>&1
+            $LASTEXITCODE | Should Be 1
+            (Test-Path -LiteralPath $isolatedState) | Should Be $false
+            $result = Get-Content -LiteralPath (Join-Path $script:markerDir 'open-request.cancel-before-send.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            $result.error.Contains('未发送') | Should Be $true
+        } finally { Remove-Item Env:\OPENCODE_TUTOR_INVOCATION -ErrorAction SilentlyContinue }
+    }
+
+    It 'learn line stays invisible in the project session listings' {
         $state = Read-LearnState -Path $statePath
         $learnId = @($state.lines.Values)[-1]
 
-        $rootsRaw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?roots=true" -TimeoutSec 15
-        $roots = @($rootsRaw)
-        @($roots | Where-Object { $_.id -eq $learnId }).Count | Should Be 0
+        $escDir = [Uri]::EscapeDataString($script:sb.Directory)
+        $projRoots = @(Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?directory=$escDir&roots=true" -TimeoutSec 15)
+        @($projRoots | Where-Object { $_.id -eq $learnId }).Count | Should Be 0
 
-        $allRaw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
-        $all = @($allRaw)
-        @($all | Where-Object { $_.id -eq $learnId }).Count | Should Be 1
+        $projRaw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?directory=$escDir" -TimeoutSec 15
+        $proj = @($projRaw)
+        @($proj | Where-Object { $_.id -eq $learnId }).Count | Should Be 0
     }
 
     It 'second trigger appends to the same sticky line without creating a new one' {
         $state = Read-LearnState -Path $statePath
         $firstId = @($state.lines.Values)[0]
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'second selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -NoReply 2>&1
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'second selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -NoReply 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Output $out }
         $LASTEXITCODE | Should Be 0
 
-        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
+        $escLineDir = [Uri]::EscapeDataString($script:lineDir)
+        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?directory=$escLineDir" -TimeoutSec 15
         $sessions = @($raw)
-        $marked = @($sessions | Where-Object { $_.title.Contains((Get-LearnMarker)) -and $_.directory -eq $script:sb.Directory })
+        $marked = @($sessions | Where-Object { $_.title.Contains((Get-LearnMarker)) })
         $marked.Count | Should Be 1
         $marked[0].id | Should Be $firstId
 
@@ -138,28 +176,93 @@ Describe 'Entry script black box' {
         Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $second.id -Text 'new main context' | Out-Null
         $oldState = Read-LearnState -Path $statePath
         $oldId = @($oldState.lines.Values)[0]
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'third selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -NoReply 2>&1
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -MainSessionId $second.id -ClipboardText 'third selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -NoReply 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Output $out }
         $LASTEXITCODE | Should Be 0
 
         $state = Read-LearnState -Path $statePath
         $state.lines[$second.id] | Should Not Be $oldId
 
-        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session" -TimeoutSec 15
-        $sessions = @($raw)
-        $newLine = @($sessions | Where-Object { $_.id -eq $state.lines[$second.id] })
-        $newLine.Count | Should Be 1
+        $newLineInfo = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$($state.lines[$second.id])" -TimeoutSec 15
+        $newLineInfo.id | Should Be $state.lines[$second.id]
+        $newLineInfo.parentID | Should BeNullOrEmpty
         $kbRaw = Get-Content -LiteralPath $kbPath -Raw -Encoding UTF8
         $kbRaw.Contains($state.lines[$second.id]) | Should Be $true
     }
 
-    It 'auto-restarts the backend when opencode config is newer than the server' {
+    It 'migrates a legacy child line into a standalone root line' {
+        $legacyMain = New-SandboxSession -BaseUrl $script:sb.BaseUrl -Title 'legacy main'
+        Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $legacyMain.id -Text 'legacy ctx' | Out-Null
+        $otherMain = New-SandboxSession -BaseUrl $script:sb.BaseUrl -Title 'legacy other main'
+        $emoji = [char]::ConvertFromUtf32(0x1F4D8)
+        $childBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ title = ($emoji + ' [LEARN] legacy child'); directory = $script:sb.Directory; parentID = $legacyMain.id } | ConvertTo-Json))
+        $child = Invoke-RestMethod -Method Post -Uri "$($script:sb.BaseUrl)/session" -ContentType 'application/json; charset=utf-8' -Body $childBytes -TimeoutSec 30
+        $otherChildBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ title = ($emoji + ' [LEARN] legacy other child'); directory = $script:sb.Directory; parentID = $otherMain.id } | ConvertTo-Json))
+        $otherChild = Invoke-RestMethod -Method Post -Uri "$($script:sb.BaseUrl)/session" -ContentType 'application/json; charset=utf-8' -Body $otherChildBytes -TimeoutSec 30
+
+        $st = Read-LearnState -Path $statePath
+        $lines = @{}
+        foreach ($k in @($st.lines.Keys)) { $lines[$k] = [string]$st.lines[$k] }
+        $lines[$legacyMain.id] = [string]$child.id
+        $lines[$otherMain.id] = [string]$otherChild.id
+        Write-LearnState -Path $statePath -Lines $lines
+
+        Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $legacyMain.id -Text 'legacy ctx 2' | Out-Null
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -MainSessionId $legacyMain.id -ClipboardText 'migration selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -NoReply 2>&1
+        if ($LASTEXITCODE -ne 0) { Write-Output $out }
+        $LASTEXITCODE | Should Be 0
+
+        $state = Read-LearnState -Path $statePath
+        $newId = [string]$state.lines[$legacyMain.id]
+        $newId | Should Not Be $child.id
+
+        foreach ($dead in @($child.id, $otherChild.id)) {
+            $gone = $false
+            try { $null = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$dead" -TimeoutSec 10 } catch { $gone = $true }
+            $gone | Should Be $false
+        }
+
+        $newInfo = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$newId" -TimeoutSec 15
+        $newInfo.parentID | Should BeNullOrEmpty
+        $newInfo.directory.TrimEnd('\') | Should Be $script:lineDir.TrimEnd('\')
+    }
+
+    It 'preserves unmapped learn lines during rebuild' {
+        if (-not (Test-Path -LiteralPath $script:lineDir)) { New-Item -ItemType Directory -Path $script:lineDir -Force | Out-Null }
+        $emoji = [char]::ConvertFromUtf32(0x1F4D8)
+        $orphanLineBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ title = ($emoji + ' [LEARN] orphan line'); directory = $script:lineDir } | ConvertTo-Json))
+        $orphanLine = Invoke-RestMethod -Method Post -Uri "$($script:sb.BaseUrl)/session" -ContentType 'application/json; charset=utf-8' -Body $orphanLineBytes -TimeoutSec 30
+        $orphanProjBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ title = ($emoji + ' [LEARN] orphan proj'); directory = $script:sb.Directory } | ConvertTo-Json))
+        $orphanProj = Invoke-RestMethod -Method Post -Uri "$($script:sb.BaseUrl)/session" -ContentType 'application/json; charset=utf-8' -Body $orphanProjBytes -TimeoutSec 30
+
+        $freshMain = New-SandboxSession -BaseUrl $script:sb.BaseUrl -Title 'fresh main'
+        Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $freshMain.id -Text 'fresh ctx' | Out-Null
+
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -MainSessionId $freshMain.id -ClipboardText 'cleanup selection' -ServerUrl $script:sb.BaseUrl -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -NoReply 2>&1
+        if ($LASTEXITCODE -ne 0) { Write-Output $out }
+        $LASTEXITCODE | Should Be 0
+
+        foreach ($dead in @($orphanLine.id, $orphanProj.id)) {
+            $gone = $false
+            try { $null = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session/$dead" -TimeoutSec 10 } catch { $gone = $true }
+            $gone | Should Be $false
+        }
+
+        $escLineDir = [Uri]::EscapeDataString($script:lineDir)
+        $raw = Invoke-RestMethod -Uri "$($script:sb.BaseUrl)/session?directory=$escLineDir" -TimeoutSec 15
+        $marked = @($raw | Where-Object { $_.title.Contains((Get-LearnMarker)) })
+        $marked.Count | Should BeGreaterThan 0
+        $state = Read-LearnState -Path $statePath
+        $state.lines[$freshMain.id] | Should Not BeNullOrEmpty
+    }
+
+    It 'keeps a running backend when config changes instead of killing its owner' {
         $fakeCfg = Join-Path $script:sb.Directory 'fake-opencode.json'
         Set-Content -LiteralPath $fakeCfg -Value '{}' -Encoding UTF8
         (Get-Item -LiteralPath $fakeCfg).LastWriteTime = (Get-Date).AddMinutes(5)
         $main = New-SandboxSession -BaseUrl $script:sb.BaseUrl -Title 'stale main'
         Add-SandboxMessage -BaseUrl $script:sb.BaseUrl -SessionId $main.id -Text 'ctx' | Out-Null
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -ClipboardText 'stale check' -ServerUrl $script:sb.BaseUrl -OpencodeConfigPaths @($fakeCfg) -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -NoReply 2>&1
+        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $entry -MainSessionId $main.id -ClipboardText 'stale check' -ServerUrl $script:sb.BaseUrl -OpencodeConfigPaths @($fakeCfg) -StateFile $statePath -WorkDir $script:sb.Directory -KeybindingsPath $kbPath -LineDir $script:lineDir -NoReply 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Output $out }
         $LASTEXITCODE | Should Be 0
 
@@ -216,6 +319,38 @@ Describe 'HTTP wrappers against sandbox server' {
         }
         $userCount | Should Be 1
         @($msgs | Where-Object { $_.info.role -eq 'assistant' }).Count | Should Be 0
+    }
+
+    It 'pages older context using the supported limit and before parameters' {
+        $s = New-SandboxSession -BaseUrl $sb.BaseUrl -Title 'pagination fixture'
+        foreach ($text in @('older selected phrase','middle context','latest context')) {
+            Add-SandboxMessage -BaseUrl $sb.BaseUrl -SessionId $s.id -Text $text | Out-Null
+        }
+        $cursor = ''
+        $recent = @(Get-LearnMessages -BaseUrl $sb.BaseUrl -SessionId $s.id -Limit 2 -NextCursor ([ref]$cursor))
+        $recent.Count | Should Be 2
+        (Get-LearnMessageText $recent[0]) | Should Be 'middle context'
+        $cursor | Should Not BeNullOrEmpty
+        $older = @(Get-LearnMessages -BaseUrl $sb.BaseUrl -SessionId $s.id -Limit 2 -Before $cursor)
+        $older.Count | Should Be 1
+        (Get-LearnMessageText $older[0]) | Should Be 'older selected phrase'
+        $context = @(Get-LearnContextMessages -BaseUrl $sb.BaseUrl -SessionId $s.id -SelectedText 'older selected phrase' -PageSize 2 -MaxMessages 6)
+        $context.Count | Should Be 3
+    }
+
+    It 'rolls over a full learning session without deleting the previous one' {
+        $main = New-SandboxSession -BaseUrl $sb.BaseUrl -Title 'rollover fixture'
+        $state = Join-Path $sb.Directory 'rollover.json'
+        $lineDir = Join-Path $sb.Directory 'lines'
+        $old = Get-OrCreateLearnLine $sb.BaseUrl $state $lineDir $main -MaxMessages 2
+        Add-SandboxMessage -BaseUrl $sb.BaseUrl -SessionId $old -Text 'first question' | Out-Null
+        Add-SandboxMessage -BaseUrl $sb.BaseUrl -SessionId $old -Text 'second question' | Out-Null
+        $previous = ''
+        $next = Get-OrCreateLearnLine $sb.BaseUrl $state $lineDir $main -MaxMessages 2 -PreviousId ([ref]$previous)
+        $next | Should Not Be $old
+        $previous | Should Be $old
+        (Read-LearnState $state).lines[$main.id] | Should Be $next
+        @(Get-LearnMessages -BaseUrl $sb.BaseUrl -SessionId $old).Count | Should Be 2
     }
 
     It 'deletes session and tolerates repeated deletion' {

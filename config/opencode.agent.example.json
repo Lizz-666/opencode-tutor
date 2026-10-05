@@ -10,7 +10,8 @@
         "edit": false,
         "patch": false,
         "bash": false,
-        "todowrite": false
+        "todowrite": false,
+        "task": false
       }
     }
   }

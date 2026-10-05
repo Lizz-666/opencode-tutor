@@ -1,0 +1,82 @@
+{
+  "name": "opencode-tutor-panel",
+  "displayName": "opencode-tutor 讲解面板",
+  "description": "Alt+L 讲解面板：隐身运行 explain.ps1，就绪后在编辑器右侧打开讲解会话（不依赖任务系统/内建 Simple Browser）",
+  "version": "1.2.1",
+  "publisher": "lizz666",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:opencodeTutor.open",
+    "onCommand:opencodeTutor.chooseSession",
+    "onCommand:opencodeTutor.openWithOptions",
+    "onCommand:opencodeTutor.newLine",
+    "onCommand:opencodeTutor.cancelPreparation",
+    "onCommand:opencodeTutor.abortGeneration"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opencodeTutor.open",
+        "title": "opencode-tutor: 打开讲解面板"
+      },
+      {
+        "command": "opencodeTutor.chooseSession",
+        "title": "opencode-tutor: 重新选择主会话并讲解"
+      },
+      {
+        "command": "opencodeTutor.openWithOptions",
+        "title": "opencode-tutor: 选择讲解方式和背景"
+      },
+      {
+        "command": "opencodeTutor.newLine",
+        "title": "opencode-tutor: 新学习会话讲解选区"
+      },
+      {
+        "command": "opencodeTutor.cancelPreparation",
+        "title": "opencode-tutor: 取消讲解准备"
+      },
+      {
+        "command": "opencodeTutor.abortGeneration",
+        "title": "opencode-tutor: 停止当前学习会话生成"
+      }
+    ],
+    "configuration": {
+      "properties": {
+        "opencodeTutor.learnDirectory": {
+          "scope": "machine",
+          "description": "自定义脚本安装目录；留空使用用户目录下 .config/opencode/learn。",
+          "default": "",
+          "type": "string"
+        },
+        "opencodeTutor.explanationStyle": {
+          "default": "brief",
+          "description": "默认讲解方式：简短、深入或举例；命令面板可为单次请求选择。",
+          "enum": [
+            "brief",
+            "detailed",
+            "example"
+          ],
+          "type": "string"
+        },
+        "opencodeTutor.contextMode": {
+          "default": "relevant",
+          "description": "背景范围：选区相关消息、近期对话或仅选区。",
+          "enum": [
+            "relevant",
+            "recent",
+            "none"
+          ],
+          "type": "string"
+        }
+      },
+      "title": "opencode-tutor"
+    }
+  }
+}

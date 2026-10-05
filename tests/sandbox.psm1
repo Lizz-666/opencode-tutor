@@ -1,4 +1,4 @@
-function Get-FreePort {
+﻿function Get-FreePort {
     $listener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     $port = $listener.LocalEndpoint.Port
@@ -34,14 +34,14 @@ function Clear-SandboxSessions {
         [Parameter(Mandatory = $true)][string]$BaseUrl,
         [Parameter(Mandatory = $true)][string]$Directory
     )
-    $target = $Directory.TrimEnd('\')
-    $resp = Invoke-WebRequest -Uri "$BaseUrl/session" -UseBasicParsing -TimeoutSec 20
-    $json = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
-    $parsed = ConvertFrom-Json -InputObject $json
-    $sessions = @($parsed)
-    foreach ($s in $sessions) {
-        if ($s.directory -and $s.directory.TrimEnd('\') -eq $target) {
-            try { Invoke-RestMethod -Method Delete -Uri "$BaseUrl/session/$($s.id)" -TimeoutSec 15 | Out-Null } catch {}
+    foreach ($dir in @($Directory, (Join-Path $Directory 'lines'))) {
+        $url = $BaseUrl + '/session?directory=' + [Uri]::EscapeDataString($dir)
+        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20
+        $json = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
+        foreach ($s in @($json | ConvertFrom-Json)) {
+            if ($s.directory -and $s.directory.TrimEnd('\') -eq $dir.TrimEnd('\')) {
+                try { Invoke-RestMethod -Method Delete -Uri "$BaseUrl/session/$($s.id)" -TimeoutSec 15 | Out-Null } catch {}
+            }
         }
     }
 }
@@ -61,7 +61,10 @@ function Remove-Sandbox {
         Start-Sleep -Milliseconds 400
     }
     Start-Sleep -Milliseconds 300
-    Remove-Item -LiteralPath $Sandbox.Directory -Recurse -Force -ErrorAction SilentlyContinue
+    $target = [IO.Path]::GetFullPath($Sandbox.Directory)
+    $root = [IO.Path]::GetFullPath((Join-Path $env:TEMP 'opencode')).TrimEnd('\') + '\'
+    if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe sandbox cleanup path' }
+    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function New-SandboxSession {

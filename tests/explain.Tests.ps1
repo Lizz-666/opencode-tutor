@@ -71,13 +71,13 @@ Describe 'Build-LearnBackground' {
         $bg.Contains('skip me') | Should Be $false
     }
 
-    It 'caps the background to the tail when exceeding max chars' {
+    It 'keeps complete messages under the budget without slicing older messages' {
         $msgs = @(
             (New-BgMessage 'user' ('x' * 100)),
             (New-BgMessage 'assistant' 'ZZZ-FINAL-MARKER')
         )
         $bg = Build-LearnBackground -Messages $msgs -MaxChars 40
-        $bg.Length | Should Be 40
+        $bg | Should Be 'assistant: ZZZ-FINAL-MARKER'
         $bg.Contains('ZZZ-FINAL-MARKER') | Should Be $true
     }
 
@@ -97,12 +97,12 @@ Describe 'Select-MainSession' {
         New-Object PSObject -Property @{ id = $Id; title = $Title; directory = $Directory; time = @{ updated = $Updated } }
     }
 
-    It 'picks the most recently updated session in target directory' {
+    It 'requires an explicit id when several root sessions match' {
         $a = New-FakeSession 'ses_a' 'work a' $dir 1000
         $b = New-FakeSession 'ses_b' 'work b' $dir 2000
         $c = New-FakeSession 'ses_c' 'work c' $dir 1500
         $result = Select-MainSession -Sessions @($a, $b, $c) -Directory $dir -ExcludeIds @() -Marker 'XYZNOPE'
-        $result.id | Should Be 'ses_b'
+        $result | Should BeNullOrEmpty
     }
 
     It 'excludes learn sessions by title marker and by excluded ids' {
@@ -156,12 +156,13 @@ Describe 'Learn state file' {
         $state.lines | Should BeNullOrEmpty
     }
 
-    It 'tolerates corrupt state file' {
-        $path = Join-Path $tempRoot ('state-corrupt-' + [Guid]::NewGuid().ToString('N') + '.json')
-        Set-Content -LiteralPath $path -Value '{not valid json'
-        $state = Read-LearnState -Path $path
-        $state.lines | Should BeNullOrEmpty
-        Remove-Item -LiteralPath $path -Force
+    It 'preserves and reports a corrupt state file' {
+        $path = Join-Path $env:TEMP ('opencode\corrupt-' + [Guid]::NewGuid().ToString('N') + '.json')
+        [IO.File]::WriteAllText($path, '{broken')
+        { Read-LearnState -Path $path } | Should Throw
+        { Write-LearnState -Path $path -Lines @{ x='y' } } | Should Throw
+        [IO.File]::ReadAllText($path) | Should Be '{broken'
+        Remove-Item -LiteralPath $path
     }
 }
 
@@ -236,6 +237,76 @@ Describe 'Test-LearnConfigStale' {
             (Get-Item -LiteralPath $cfg).LastWriteTime = (Get-Date).AddMinutes(-5)
             Test-LearnConfigStale -BaseUrl ("http://127.0.0.1:$port") -ConfigPaths @($cfg) | Should Be $false
         } finally { $listener.Stop(); Remove-Item -LiteralPath $cfg -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Test-LearnLineNeedsRebuild' {
+    function New-LineInfo {
+        param($Id, $ParentId, $Directory)
+        $obj = New-Object PSObject -Property @{ id = $Id; directory = $Directory }
+        $obj | Add-Member -NotePropertyName parentID -NotePropertyValue $ParentId -Force
+        return $obj
+    }
+
+    It 'rebuilds when the mapped line is missing' {
+        Test-LearnLineNeedsRebuild -LineInfo $null -ExpectedDirectory 'C:\learn\lines' | Should Be $true
+    }
+
+    It 'rebuilds a legacy child line (parentID set)' {
+        $info = New-LineInfo 'ses_x' 'ses_main' 'C:\learn\lines'
+        Test-LearnLineNeedsRebuild -LineInfo $info -ExpectedDirectory 'C:\learn\lines' | Should Be $true
+    }
+
+    It 'rebuilds a line placed outside the dedicated directory' {
+        $info = New-LineInfo 'ses_x' '' 'C:\proj\alpha'
+        Test-LearnLineNeedsRebuild -LineInfo $info -ExpectedDirectory 'C:\learn\lines' | Should Be $true
+    }
+
+    It 'keeps a healthy standalone root line in the dedicated directory' {
+        $info = New-LineInfo 'ses_x' '' 'C:\learn\lines\'
+        Test-LearnLineNeedsRebuild -LineInfo $info -ExpectedDirectory 'C:\learn\lines' | Should Be $false
+    }
+}
+
+Describe 'Write-LearnOpenRequest' {
+    $tempRoot = Join-Path $env:TEMP 'opencode'
+    if (-not (Test-Path -LiteralPath $tempRoot)) { New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null }
+
+    It 'writes a per-invocation url marker readable by the panel extension' {
+        $dir = Join-Path $tempRoot ('oreq-' + [Guid]::NewGuid().ToString('N'))
+        Write-LearnOpenRequest -Directory $dir -Invocation 'abc-123' -Url 'http://127.0.0.1:4399/server/x/session/ses_line'
+        $path = Join-Path $dir 'open-request.abc-123.json'
+        (Test-Path -LiteralPath $path) | Should Be $true
+        $m = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $m.invocation | Should Be 'abc-123'
+        $m.url | Should Be 'http://127.0.0.1:4399/server/x/session/ses_line'
+        $m.error | Should BeNullOrEmpty
+        Remove-Item -LiteralPath $dir -Recurse -Force
+    }
+
+    It 'writes an error marker without url' {
+        $dir = Join-Path $tempRoot ('oreq-err-' + [Guid]::NewGuid().ToString('N'))
+        Write-LearnOpenRequest -Directory $dir -Invocation 'err-1' -ErrorMessage 'boom reason'
+        $path = Join-Path $dir 'open-request.err-1.json'
+        (Test-Path -LiteralPath $path) | Should Be $true
+        $m = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $m.error | Should Be 'boom reason'
+        $m.url | Should BeNullOrEmpty
+        Remove-Item -LiteralPath $dir -Recurse -Force
+    }
+
+    It 'skips writing when invocation is empty (manual runs)' {
+        $dir = Join-Path $tempRoot ('oreq-manual-' + [Guid]::NewGuid().ToString('N'))
+        Write-LearnOpenRequest -Directory $dir -Invocation '' -Url 'http://x'
+        (Test-Path -LiteralPath $dir) | Should Be $false
+    }
+
+    It 'sanitizes hostile invocation ids into filename-safe text' {
+        $dir = Join-Path $tempRoot ('oreq-bad-' + [Guid]::NewGuid().ToString('N'))
+        Write-LearnOpenRequest -Directory $dir -Invocation 'a/../b!@#c' -Url 'http://x'
+        $path = Join-Path $dir 'open-request.abc.json'
+        (Test-Path -LiteralPath $path) | Should Be $true
+        Remove-Item -LiteralPath $dir -Recurse -Force
     }
 }
 
